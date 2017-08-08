@@ -55,14 +55,17 @@ public class HtmlTagValidator {
 			if (stack.isEmpty()) {
 				stack.push(tag);
 			} else {
-				if (tag.name.startsWith("/")) {
+				if (tag.getName().startsWith("/")) {
+					if (this.isEnclosingEndTag(tag)) {
+						result.add(new ValidateError("自闭合标签不需要结束标签: " + tag.toString(), null, tag));
+						continue;
+					}
 					Tag previous = stack.peek();
-					if (previous.name.equals(tag.name.substring(1))) {
+					if (previous.getName().equals(tag.getName().substring(1))) {
 						stack.pop();
 					} else {
-						System.out.println("Error:" + previous.toString());
 						stack.push(tag);
-						result.add(new ValidateError(previous, tag));
+						result.add(new ValidateError("标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag));
 					}
 				} else {
 					stack.push(tag);
@@ -70,6 +73,20 @@ public class HtmlTagValidator {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * 判断结束标签是否为自闭合标签
+	 * @param endTag 结束标签
+	 * @return 是否为自闭合标签
+	 */
+	private boolean isEnclosingEndTag(Tag endTag) {
+		for (String enclosingTag : ENCLOSING_TAGS) {
+			if (enclosingTag.equalsIgnoreCase(endTag.getName().substring(1))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -98,9 +115,22 @@ public class HtmlTagValidator {
 						|| tagHtml.endsWith("</script>")) {
 					continue;
 				}
+				
 				int position = ma.start();
-				// System.out.println(temp + " start:" + position);
 				Tag tag = new Tag(tagHtml, getPos(html, position));
+				
+				// 忽略自闭合标签
+				boolean isEnclosingTag = false;
+				for (String enclosingTag : ENCLOSING_TAGS) {
+					if (enclosingTag.equalsIgnoreCase(tag.getName())) {
+						isEnclosingTag = true;
+						break;
+					}
+				}
+				if (isEnclosingTag) {
+					continue;
+				}
+				
 				list.add(tag);
 			}
 		}
@@ -138,8 +168,10 @@ public class HtmlTagValidator {
 		
 		private Tag beginTag; 	// 开始标签
 		private Tag endTag;		// 结束标签
+		private String message; // 错误信息
 		
-		public ValidateError(Tag beginTag, Tag endTag) {
+		public ValidateError(String message, Tag beginTag, Tag endTag) {
+			this.message = message;
 			this.beginTag = beginTag;
 			this.endTag = endTag;
 		}
@@ -156,6 +188,14 @@ public class HtmlTagValidator {
 		public void setEndTag(Tag endTag) {
 			this.endTag = endTag;
 		}
+
+		public String getMessage() {
+			return message;
+		}
+
+		public void setMessage(String message) {
+			this.message = message;
+		}
 		
 	}
 	
@@ -170,11 +210,11 @@ public class HtmlTagValidator {
 
 		public Tag(String html, Position position) {
 			this.html = html;
-			this.name = this.getName(html);
+			this.name = this.genName(html);
 			this.position = position;
 		}
 
-		private String getName(String html) {
+		private String genName(String html) {
 			if (html.startsWith("</")) {
 				return html.substring(1, html.length() - 1);
 			} else {
@@ -204,8 +244,7 @@ public class HtmlTagValidator {
 		}
 
 		public String toString() {
-			return "tag: " + name + ", line: " + this.position.line + ", col: " + this.position.col + ", position: "
-					+ this.position.position;
+			return "<" + name + ">, line " + this.position.line + ", col " + this.position.col;
 		}
 
 		public String getHtml() {

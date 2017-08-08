@@ -25,11 +25,20 @@ public class HtmlTagValidatorTest {
 		HtmlTagValidator validator = new HtmlTagValidator();
 		String path = HtmlTagValidatorTest.class.getResource("test1.jsp").getPath();
 		List<ValidateError> result1 = validator.exec(path, "UTF-8");
+		for (ValidateError error : result1) {
+			System.out.println(error.getMessage());
+		}
 		Assert.assertTrue("校验正确的test1.jsp", result1.isEmpty());
+		
 		
 		path = HtmlTagValidatorTest.class.getResource("test2.jsp").getPath();
 		List<ValidateError> result2 = validator.exec(path, "UTF-8");
 		Assert.assertTrue("校验有错误的test2.jsp", !result2.isEmpty());
+		
+		for (ValidateError error : result2) {
+			System.out.println(error.getMessage());
+		}
+		
 	}
 
 }

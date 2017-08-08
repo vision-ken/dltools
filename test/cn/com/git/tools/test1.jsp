@@ -6,7 +6,9 @@
 <%@ include file="/page/platform/common/common.jsp"%>
 
 <div class="page-content">
-<form method="post" class="form" id="test1"></form>
+<form method="post" class="form" id="test1">
+<input name="aaa">
+</form>
 dddd1
 <fieldset><div>dd</div></fieldset>
 <div class="form"></div>
