@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Stack;
 import java.util.regex.Matcher;
@@ -29,18 +30,85 @@ public class HtmlTagValidator {
 	public static List<String> ENCLOSING_TAGS = Arrays.asList("area", "base", "br", "col", "command", "embed", "hr", "img",
 			"input", "keygen", "link", "meta", "param", "source", "track", "wbr");
 
+	// 要校验的文件类型，既扩展名
+	private String[] fileTypes;
+	
+	public HtmlTagValidator() {
+		fileTypes = new String[] { "htm", "html", "jsp" };
+	}
+
+	/**
+	 * @param fileTypes 要检查文件类型
+	 */
+	public HtmlTagValidator(String[] fileTypes) {
+		if (fileTypes != null && fileTypes.length > 0) {
+			this.fileTypes = fileTypes;
+		}
+	}
+	
+	/**
+	 * 检查html的标签
+	 * @param path 文件或目录的绝对路径
+	 * @param charset 文件的编码
+	 * @return 检查结果
+	 * @throws IOException
+	 */
 	public List<ValidateError> exec(String path, String charset) throws IOException {
-		/**
-		 * 核心算法：
-		 * 1、先把 html 文本中的标签提取出来，然后再去掉属性之类的，转换成一个 “标签列表”，比如：
-		 * <div class="main><ul><li>test</li> 就转换成了：["div","ul","li""/li"]
-		 * 2、接着读取上面这个列表，把开始标签压栈，遇到以 / 开头的结束标签，检查是否和栈顶的标签相匹配，匹配就弹出，走完标签列表后，还留在栈里的标签就是需要闭合的标签了。
-		 */
+		return this.recursive(new File(path), charset);
+	}
+	
+	/**
+	 * 递归处理
+	 * 
+	 * @param srcFile 待检测的文件或目录
+	 * @param charset 文件的字符集
+	 * @throws IOException
+	 */
+	protected List<ValidateError> recursive(File srcFile, String charset) throws IOException {
+		if (srcFile.isFile()) { // 文件
+			// 检查文件类型
+			for (String fileType : fileTypes) {
+				if (getFileExtension(srcFile.getName()).equalsIgnoreCase(fileType)) {
+					return this.process(srcFile, charset);
+				}
+			}
+			return Collections.emptyList();
+		} else { // 文件夹
+			List<ValidateError> result = new ArrayList<ValidateError>();
+			for (File file : srcFile.listFiles()) {
+				List<ValidateError> val = recursive(file, charset);
+				result.addAll(val);
+			}
+			return result;
+		}
+	}
+	
+	/**
+	 * 获取文件扩展名
+	 * @param fileName
+	 * @return
+	 */
+	private static String getFileExtension(String fileName) {
+		return fileName.substring(fileName.lastIndexOf(".") + 1);
+	}
+	
+	/**
+	 * 核心算法：
+	 * 1、先把 html 文本中的标签提取出来，然后再去掉属性之类的，转换成一个 “标签列表”，比如：
+	 * <div class="main><ul><li>test</li> 就转换成了：["div","ul","li""/li"]
+	 * 2、接着读取上面这个列表，把开始标签压栈，遇到以 / 开头的结束标签，检查是否和栈顶的标签相匹配，匹配就弹出，走完标签列表后，还留在栈里的标签就是需要闭合的标签了。
+	 * 
+	 * @param file 要检查的文件
+	 * @param charset 文件的字符集
+	 * @return 检查结果
+	 * @throws IOException
+	 */
+	public List<ValidateError> process(File file, String charset) throws IOException {
 		// 获取标签列表
-		String html = FileUtils.loadFileToString(new File(path), charset);
+		String html = FileUtils.loadFileToString(file, charset);
 		List<Tag> tagList = this.getTags(html);
 		// 校验合法性
-		return this.validate(tagList);
+		return this.validate(file.getAbsolutePath(), tagList);
 	}
 	
 	/**
@@ -48,7 +116,7 @@ public class HtmlTagValidator {
 	 * @param tagList html标签列表
 	 * @return 是否校验通过
 	 */
-	protected List<ValidateError> validate(List<Tag> tagList) {
+	protected List<ValidateError> validate(String filePath, List<Tag> tagList) {
 		Stack<Tag> stack = new Stack<Tag>();
 		List<ValidateError> result = new ArrayList<ValidateError>();
 		for (Tag tag : tagList) {
@@ -57,7 +125,7 @@ public class HtmlTagValidator {
 			} else {
 				if (tag.getName().startsWith("/")) {
 					if (this.isEnclosingEndTag(tag)) {
-						result.add(new ValidateError("自闭合标签不需要结束标签: " + tag.toString(), null, tag));
+						result.add(new ValidateError(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), null, tag));
 						continue;
 					}
 					Tag previous = stack.peek();
@@ -65,7 +133,7 @@ public class HtmlTagValidator {
 						stack.pop();
 					} else {
 						stack.push(tag);
-						result.add(new ValidateError("标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag));
+						result.add(new ValidateError(filePath + " 标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag));
 					}
 				} else {
 					stack.push(tag);
@@ -140,10 +208,8 @@ public class HtmlTagValidator {
 	/**
 	 * 根据位置获取行、列
 	 * 
-	 * @param content
-	 *            html的全部内容
-	 * @param position
-	 *            标签的起始位置
+	 * @param content html的全部内容
+	 * @param position 标签的起始位置
 	 * @return 标签位置信息
 	 */
 	protected Position getPos(String content, int position) {
