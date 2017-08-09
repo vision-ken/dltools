@@ -11,7 +11,7 @@ import cn.com.git.tools.HtmlTagValidator.ValidateError;
 /**
  * html标签检查器测试
  * 
- * @author vision-ken
+ * @author vision
  *
  */
 public class HtmlTagValidatorTest {

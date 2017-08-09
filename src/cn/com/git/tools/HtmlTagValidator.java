@@ -5,19 +5,21 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import cn.com.git.utils.FileUtils;
+import cn.com.git.utils.StringUtils;
 
 /**
  * <p>html标签检查器</p>
  * 
  * <p>检查html标签是否闭合、结束标签的位置是否正确</p>
  * 
- * @author vision-ken
+ * @author vision
  */
 public class HtmlTagValidator {
 
@@ -106,9 +108,46 @@ public class HtmlTagValidator {
 	public List<ValidateError> process(File file, String charset) throws IOException {
 		// 获取标签列表
 		String html = FileUtils.loadFileToString(file, charset);
+		html = this.preProcess(html);
 		List<Tag> tagList = this.getTags(html);
 		// 校验合法性
-		return this.validate(file.getAbsolutePath(), tagList);
+		List<ValidateError> result = this.validate(file.getAbsolutePath(), tagList, html);
+		this.sortError(result);
+		return result;
+	}
+	
+	/**
+	 * 对处理结果进行排序
+	 * @param errorList 错误列表
+	 * @return 排序结果
+	 */
+	private void sortError(List<ValidateError> errorList) {
+		Collections.sort(errorList, new Comparator<ValidateError>() {
+		      @Override
+		      public int compare(ValidateError o1, ValidateError o2) {
+		    	  return Integer.valueOf(o1.getCurrentTag().getPosition().getLine()).compareTo(Integer.valueOf(o2.getCurrentTag().getPosition().getLine()));
+		      }
+		    });
+	}
+
+	/**
+	 * 前置处理
+	 * @param html
+	 */
+	protected String preProcess(String html) {
+		// 将注释等内容替换为等长的空格
+		String ss = "<!--(.|\\s)*?-->";	// 匹配html多行注释, "<!--.*?-->" 匹配单行注释
+		String commentHtml = null;
+		Pattern pa = Pattern.compile(ss);
+		Matcher ma = null;
+		ma = pa.matcher(html);
+		while (ma.find()) {
+			commentHtml = ma.group();
+//			System.out.println(commentHtml + "\r\n####");
+			html = html.replace(commentHtml, StringUtils.replaceNotCRLF(commentHtml, " "));
+		}
+//		System.out.println(html);
+		return html;
 	}
 	
 	/**
@@ -116,7 +155,7 @@ public class HtmlTagValidator {
 	 * @param tagList html标签列表
 	 * @return 是否校验通过
 	 */
-	protected List<ValidateError> validate(String filePath, List<Tag> tagList) {
+	protected List<ValidateError> validate(String filePath, List<Tag> tagList, String html) {
 		Stack<Tag> stack = new Stack<Tag>();
 		List<ValidateError> result = new ArrayList<ValidateError>();
 		for (Tag tag : tagList) {
@@ -125,7 +164,7 @@ public class HtmlTagValidator {
 			} else {
 				if (tag.getName().startsWith("/")) {
 					if (this.isEnclosingEndTag(tag)) {
-						result.add(new ValidateError(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), null, tag));
+						result.add(new ValidateError(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), tag));
 						continue;
 					}
 					Tag previous = stack.peek();
@@ -140,6 +179,27 @@ public class HtmlTagValidator {
 				}
 			}
 		}
+		
+		// 检查未闭合的注释
+		String ss = "<!--";
+		Matcher ma = Pattern.compile(ss).matcher(html);
+		while (ma.find()) {
+			Position pos = getPos(html, ma.start());
+			int position = ma.start();
+			String tagHtml = ma.group();
+			Tag tag = new Tag(tagHtml, getPos(html, position));
+			result.add(new ValidateError(filePath + " 注释没有结束标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
+		}
+		ss = "-->";
+		ma = Pattern.compile(ss).matcher(html);
+		while (ma.find()) {
+			Position pos = getPos(html, ma.start());
+			int position = ma.start();
+			String tagHtml = ma.group();
+			Tag tag = new Tag(tagHtml, getPos(html, position));
+			result.add(new ValidateError(filePath + " 注释没有开始标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
+		}
+		
 		return result;
 	}
 
@@ -232,29 +292,40 @@ public class HtmlTagValidator {
 	 */
 	public class ValidateError {
 		
-		private Tag beginTag; 	// 开始标签
-		private Tag endTag;		// 结束标签
-		private String message; // 错误信息
+		private Tag currentTag; 	// 当前标签
+		private Tag compareTag;		// 对比的标签
+		private String message; 	// 错误信息
 		
-		public ValidateError(String message, Tag beginTag, Tag endTag) {
+		public ValidateError(String message) {
 			this.message = message;
-			this.beginTag = beginTag;
-			this.endTag = endTag;
 		}
 		
-		public Tag getBeginTag() {
-			return beginTag;
+		public ValidateError(String message, Tag currentTag) {
+			this(message);
+			this.currentTag = currentTag;
 		}
-		public void setBeginTag(Tag beginTag) {
-			this.beginTag = beginTag;
+		
+		public ValidateError(String message, Tag currentTag, Tag compareTag) {
+			this(message, currentTag);
+			this.compareTag = compareTag;
 		}
-		public Tag getEndTag() {
-			return endTag;
-		}
-		public void setEndTag(Tag endTag) {
-			this.endTag = endTag;
+		
+		public Tag getCurrentTag() {
+			return currentTag;
 		}
 
+		public void setCurrentTag(Tag currentTag) {
+			this.currentTag = currentTag;
+		}
+
+		public Tag getCompareTag() {
+			return compareTag;
+		}
+
+		public void setCompareTag(Tag compareTag) {
+			this.compareTag = compareTag;
+		}
+		
 		public String getMessage() {
 			return message;
 		}
@@ -262,7 +333,6 @@ public class HtmlTagValidator {
 		public void setMessage(String message) {
 			this.message = message;
 		}
-		
 	}
 	
 	/**

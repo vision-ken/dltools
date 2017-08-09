@@ -11,9 +11,12 @@
 </form>
 dddd1
 <fieldset><div>dd</div></fieldset>
-<div class="form"></div>
-
-
+<!-- 工具栏 -->
+<!--  <div class="form"></div> -->
+<!--  <div class="form"></div> 
+-->
+ 
+<div class="form"></div> 
 </div>
 <script type="text/javascript" scr="${contextPath}/page/collmanage/colldetailsinfo/detailsInfoCommon.js?version=${version}"></script>
 <script type="text/javascript" scr="${contextPath}/page/collmanage/colldetailsinfo/colBankAcceptanceForm.js?version=${version}"></script>

@@ -15,5 +15,7 @@ dddd
 
 
 </div>
+-->
+<!-- 
 <script type="text/javascript" scr="${contextPath}/page/collmanage/colldetailsinfo/detailsInfoCommon.js?version=${version}"></script>
 <script type="text/javascript" scr="${contextPath}/page/collmanage/colldetailsinfo/colBankAcceptanceForm.js?version=${version}"></script>
