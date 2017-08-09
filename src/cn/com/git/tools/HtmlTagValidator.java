@@ -129,11 +129,17 @@ public class HtmlTagValidator {
 	 */
 	public List<ValidateError> process(File file, String charset) throws IOException {
 		// 获取标签列表
-		String html = FileUtils.loadFileToString(file, charset);
+		String html = FileUtils.loadFileToString(file, charset);;
+		String filePath = file.getAbsolutePath();
 		html = this.preProcess(html);
+		// 检查未闭合的注释
+		List<ValidateError> result = validateComment(filePath, html);
+		html = html.replaceAll("<!--", "   ");
+		html = html.replaceAll("-->", "   ");
+		// 获取标签列表
 		List<Tag> tagList = this.getTags(html);
 		// 校验合法性
-		List<ValidateError> result = this.validate(file.getAbsolutePath(), tagList, html);
+		result.addAll(this.validate(filePath, tagList, html));
 		this.sortError(result);
 		return result;
 	}
@@ -198,7 +204,6 @@ public class HtmlTagValidator {
 					if (previous.getName().equals(tag.getName().substring(1))) {
 						stack.pop();
 					} else {
-						stack.push(tag);
 						result.add(new ValidateError(filePath + " 标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag));
 					}
 				} else {
@@ -206,14 +211,16 @@ public class HtmlTagValidator {
 				}
 			}
 		}
-		
-		// 检查未闭合的注释
-		validateComment(filePath, html, result);
-		
+		// 
+		while (!stack.isEmpty()) {
+			Tag tag = stack.pop();
+			result.add(new ValidateError(filePath + " 缺少结束标签: " + tag.toString(), tag));
+		}
 		return result;
 	}
 
-	protected void validateComment(String filePath, String html, List<ValidateError> result) {
+	protected List<ValidateError> validateComment(String filePath, String html) {
+		List<ValidateError> result = new ArrayList<ValidateError>();
 		String ss = "<!--";
 		Matcher ma = Pattern.compile(ss).matcher(html);
 		while (ma.find()) {
@@ -232,6 +239,7 @@ public class HtmlTagValidator {
 			Tag tag = new Tag(tagHtml, getPos(html, position));
 			result.add(new ValidateError(filePath + " 注释没有开始标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
 		}
+		return result;
 	}
 
 	/**
