@@ -25,7 +25,7 @@ public class HtmlTagValidatorTest {
 	@Test
 	public void testExec1() throws IOException {
 		System.out.println("----testExec1-----");
-		HtmlTagValidator validator = new HtmlTagValidator(new String[] { "htm", "html", "jsp" });
+		HtmlTagValidator validator = new HtmlTagValidator(new String[] { "htm", "html", "jsp" }, true);
 		String path = HtmlTagValidatorTest.class.getResource("test1.jsp").getPath();
 		List<ValidateError> result1 = validator.exec(path, "UTF-8");
 		for (ValidateError error : result1) {

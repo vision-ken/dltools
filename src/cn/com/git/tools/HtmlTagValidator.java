@@ -23,14 +23,19 @@ import cn.com.git.utils.StringUtils;
  */
 public class HtmlTagValidator {
 
+	private boolean isDebug = false;
+	
 	/**
 	 * 非自闭合标签必须有开始标签和结束标签，而自闭合标签没有闭合标签。
 	 * 在w3c不同的规范中，对标签的闭合检查也是不一样的。
 	 * XHTML最为严格，必须在自闭合标签中添加"/"。在HTML4.01中，不推荐在自闭合标签中添加“/”，而HTML5最宽松，添不添加都符合规范。
-	 * HTML中所有的自闭合标签如下:
+	 * HTML中所有的自闭合标签如下:"
+	 * area", "base", "br", "col", "command", "embed", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"
+	 * 
+	 * 其它自闭合的标签：DOCTYPE，见https://segmentfault.com/a/1190000004525812
 	 */
 	public static List<String> ENCLOSING_TAGS = Arrays.asList("area", "base", "br", "col", "command", "embed", "hr", "img",
-			"input", "keygen", "link", "meta", "param", "source", "track", "wbr");
+			"input", "keygen", "link", "meta", "param", "source", "track", "wbr", "!DOCTYPE");
 
 	// 要校验的文件类型，既扩展名
 	private String[] fileTypes;
@@ -46,6 +51,23 @@ public class HtmlTagValidator {
 		if (fileTypes != null && fileTypes.length > 0) {
 			this.fileTypes = fileTypes;
 		}
+	}
+	
+	/**
+	 * @param fileTypes 要检查文件类型
+	 * @param isDebug 是否为debug模式
+	 */
+	public HtmlTagValidator(String[] fileTypes, boolean isDebug) {
+		this(fileTypes);
+		this.isDebug = isDebug;
+	}
+	
+	/**
+	 * @param isDebug 是否为debug模式
+	 */
+	public HtmlTagValidator(boolean isDebug) {
+		this();
+		this.isDebug = isDebug;
 	}
 	
 	/**
@@ -143,7 +165,9 @@ public class HtmlTagValidator {
 		ma = pa.matcher(html);
 		while (ma.find()) {
 			commentHtml = ma.group();
-//			System.out.println(commentHtml + "\r\n####");
+			if (isDebug) {
+				System.out.println(commentHtml + "\r\n####");
+			}
 			html = html.replace(commentHtml, StringUtils.replaceNotCRLF(commentHtml, " "));
 		}
 //		System.out.println(html);
@@ -162,6 +186,9 @@ public class HtmlTagValidator {
 			if (stack.isEmpty()) {
 				stack.push(tag);
 			} else {
+				if (isDebug) {
+					System.out.println("checking " + tag.html);
+				}
 				if (tag.getName().startsWith("/")) {
 					if (this.isEnclosingEndTag(tag)) {
 						result.add(new ValidateError(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), tag));
@@ -181,6 +208,12 @@ public class HtmlTagValidator {
 		}
 		
 		// 检查未闭合的注释
+		validateComment(filePath, html, result);
+		
+		return result;
+	}
+
+	protected void validateComment(String filePath, String html, List<ValidateError> result) {
 		String ss = "<!--";
 		Matcher ma = Pattern.compile(ss).matcher(html);
 		while (ma.find()) {
@@ -199,8 +232,6 @@ public class HtmlTagValidator {
 			Tag tag = new Tag(tagHtml, getPos(html, position));
 			result.add(new ValidateError(filePath + " 注释没有开始标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
 		}
-		
-		return result;
 	}
 
 	/**
@@ -231,6 +262,7 @@ public class HtmlTagValidator {
 		List<Tag> list = new ArrayList<Tag>();
 		while (ma.find()) {
 			tagHtml = ma.group();
+			
 			if (tagHtml != null) {
 				if (tagHtml.startsWith(">")) {
 					tagHtml = tagHtml.substring(1);
@@ -243,7 +275,9 @@ public class HtmlTagValidator {
 						|| tagHtml.endsWith("</script>")) {
 					continue;
 				}
-				
+				if (isDebug) {
+					System.out.println("getTags " + tagHtml);
+				}
 				int position = ma.start();
 				Tag tag = new Tag(tagHtml, getPos(html, position));
 				
