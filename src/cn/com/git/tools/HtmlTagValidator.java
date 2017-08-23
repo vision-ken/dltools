@@ -55,11 +55,11 @@ public class HtmlTagValidator {
 	
 	/**
 	 * @param fileTypes 要检查文件类型
-	 * @param isDebug 是否为debug模式
+	 * @param isDebug 是否为debug模式，可选，默认为非debug模式
 	 */
-	public HtmlTagValidator(String[] fileTypes, boolean isDebug) {
+	public HtmlTagValidator(String[] fileTypes, boolean... isDebugs) {
 		this(fileTypes);
-		this.isDebug = isDebug;
+		this.isDebug = isDebugs.length == 1 ? isDebugs[0] : false;
 	}
 	
 	/**
@@ -73,11 +73,12 @@ public class HtmlTagValidator {
 	/**
 	 * 检查html的标签
 	 * @param path 文件或目录的绝对路径
-	 * @param charset 文件的编码
+	 * @param charset 文件的编码，可选，默认为"UTF-8"
 	 * @return 检查结果
 	 * @throws IOException
 	 */
-	public List<ValidateError> exec(String path, String charset) throws IOException {
+	public List<ValidateMessage> exec(String path, String... charsets) throws IOException {
+		String charset = charsets.length == 1 ? charsets[0] : "UTF-8";
 		return this.recursive(new File(path), charset);
 	}
 	
@@ -88,7 +89,7 @@ public class HtmlTagValidator {
 	 * @param charset 文件的字符集
 	 * @throws IOException
 	 */
-	protected List<ValidateError> recursive(File srcFile, String charset) throws IOException {
+	protected List<ValidateMessage> recursive(File srcFile, String charset) throws IOException {
 		if (srcFile.isFile()) { // 文件
 			// 检查文件类型
 			for (String fileType : fileTypes) {
@@ -98,9 +99,9 @@ public class HtmlTagValidator {
 			}
 			return Collections.emptyList();
 		} else { // 文件夹
-			List<ValidateError> result = new ArrayList<ValidateError>();
+			List<ValidateMessage> result = new ArrayList<ValidateMessage>();
 			for (File file : srcFile.listFiles()) {
-				List<ValidateError> val = recursive(file, charset);
+				List<ValidateMessage> val = recursive(file, charset);
 				result.addAll(val);
 			}
 			return result;
@@ -127,13 +128,16 @@ public class HtmlTagValidator {
 	 * @return 检查结果
 	 * @throws IOException
 	 */
-	public List<ValidateError> process(File file, String charset) throws IOException {
+	public List<ValidateMessage> process(File file, String charset) throws IOException {
+		String filePath = file.getAbsolutePath();
+		if (this.isDebug) {
+			System.out.println("检查" + filePath);
+		}
 		// 获取标签列表
 		String html = FileUtils.loadFileToString(file, charset);;
-		String filePath = file.getAbsolutePath();
 		html = this.preProcess(html);
 		// 检查未闭合的注释
-		List<ValidateError> result = validateComment(filePath, html);
+		List<ValidateMessage> result = validateComment(filePath, html);
 		html = html.replaceAll("<!--", "   ");
 		html = html.replaceAll("-->", "   ");
 		// 获取标签列表
@@ -141,6 +145,9 @@ public class HtmlTagValidator {
 		// 校验合法性
 		result.addAll(this.validate(filePath, tagList, html));
 		this.sortError(result);
+		if (result.isEmpty()) {
+			System.out.println(filePath + " ok!");
+		}
 		return result;
 	}
 	
@@ -149,10 +156,10 @@ public class HtmlTagValidator {
 	 * @param errorList 错误列表
 	 * @return 排序结果
 	 */
-	private void sortError(List<ValidateError> errorList) {
-		Collections.sort(errorList, new Comparator<ValidateError>() {
+	private void sortError(List<ValidateMessage> errorList) {
+		Collections.sort(errorList, new Comparator<ValidateMessage>() {
 		      @Override
-		      public int compare(ValidateError o1, ValidateError o2) {
+		      public int compare(ValidateMessage o1, ValidateMessage o2) {
 		    	  return Integer.valueOf(o1.getCurrentTag().getPosition().getLine()).compareTo(Integer.valueOf(o2.getCurrentTag().getPosition().getLine()));
 		      }
 		    });
@@ -164,7 +171,10 @@ public class HtmlTagValidator {
 	 */
 	protected String preProcess(String html) {
 		// 将注释等内容替换为等长的空格
-		String ss = "<!--(.|\\s)*?-->";	// 匹配html多行注释, "<!--.*?-->" 匹配单行注释
+//		String ss = "<!--(.|\\s)*?-->";	// 匹配html多行注释, "<!--.*?-->" 匹配单行注释
+//		ss = "<!--(.|[\r\n])*?-->";
+//		ss = "<!--.*?-->";
+		String ss = "<!--[\\w\\W\r\\n]*?-->";
 		String commentHtml = null;
 		Pattern pa = Pattern.compile(ss);
 		Matcher ma = null;
@@ -177,6 +187,27 @@ public class HtmlTagValidator {
 			html = html.replace(commentHtml, StringUtils.replaceNotCRLF(commentHtml, " "));
 		}
 //		System.out.println(html);
+		
+		// 处理jsp代码
+		//Matcher ma2 = Pattern.compile("<%[^>]+%>").matcher(html);
+		Matcher ma2 = Pattern.compile("<%[\\w\\W\r\\n]*?%>").matcher(html);
+		while (ma2.find()) {
+			String jsp = ma2.group();
+			if (isDebug) {
+				System.out.println(jsp + "\r\n####");
+			}
+			html = html.replace(jsp, StringUtils.replaceNotCRLF(jsp, " "));
+		}
+		// 处理jsp注释
+		Matcher ma3 = Pattern.compile("<%--[\\w\\W\r\\n]*?--%>").matcher(html);
+		while (ma3.find()) {
+			String jsp = ma3.group();
+			if (isDebug) {
+				System.out.println(jsp + "\r\n****");
+			}
+			html = html.replace(jsp, StringUtils.replaceNotCRLF(jsp, " "));
+		}
+		
 		return html;
 	}
 	
@@ -185,11 +216,18 @@ public class HtmlTagValidator {
 	 * @param tagList html标签列表
 	 * @return 是否校验通过
 	 */
-	protected List<ValidateError> validate(String filePath, List<Tag> tagList, String html) {
+	protected List<ValidateMessage> validate(String filePath, List<Tag> tagList, String html) {
 		Stack<Tag> stack = new Stack<Tag>();
-		List<ValidateError> result = new ArrayList<ValidateError>();
+		List<ValidateMessage> result = new ArrayList<ValidateMessage>();
+		boolean hasFoundMatchError = false; // 是否已发现过标签匹配错误
 		for (Tag tag : tagList) {
 			if (stack.isEmpty()) {
+				if (this.isEnclosingTag(tag)) {
+					if (tag.getHtml().endsWith("/>")) {
+						result.add(new ValidateMessage(filePath + " 自闭合标签不需要/>: " + tag.toString(), tag, MessageLevel.WARNING));
+					}
+					continue;
+				}
 				stack.push(tag);
 			} else {
 				if (isDebug) {
@@ -197,30 +235,47 @@ public class HtmlTagValidator {
 				}
 				if (tag.getName().startsWith("/")) {
 					if (this.isEnclosingEndTag(tag)) {
-						result.add(new ValidateError(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), tag));
+						result.add(new ValidateMessage(filePath + " 自闭合标签不需要结束标签: " + tag.toString(), tag, MessageLevel.ERROR));
 						continue;
 					}
 					Tag previous = stack.peek();
 					if (previous.getName().equals(tag.getName().substring(1))) {
 						stack.pop();
 					} else {
-						result.add(new ValidateError(filePath + " 标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag));
+						if (hasFoundMatchError) {
+							continue;
+						} else {
+							hasFoundMatchError = true;
+							result.add(new ValidateMessage(filePath + " 标签匹配错误: " + previous.toString() + " 和 " + tag.toString(), previous, tag, MessageLevel.ERROR));
+						}
 					}
+				} else if (this.isEnclosingTag(tag)) {
+					if (tag.getHtml().endsWith("/>")) {
+						result.add(new ValidateMessage(filePath + " 自闭合标签不需要/>: " + tag.toString(), tag, MessageLevel.WARNING));
+					}
+					continue;
+				} else if (tag.getHtml().endsWith("/>")) {
+					continue;
 				} else {
 					stack.push(tag);
 				}
 			}
 		}
-		// 
-		while (!stack.isEmpty()) {
+		if (result.isEmpty() && !stack.isEmpty()) { // 当前面没有出错时，才检查stack
 			Tag tag = stack.pop();
-			result.add(new ValidateError(filePath + " 缺少结束标签: " + tag.toString(), tag));
+			result.add(new ValidateMessage(filePath + " 缺少结束标签: " + tag.toString(), tag, MessageLevel.ERROR));
 		}
 		return result;
 	}
 
-	protected List<ValidateError> validateComment(String filePath, String html) {
-		List<ValidateError> result = new ArrayList<ValidateError>();
+	/**
+	 * 校验注释
+	 * @param filePath 文件路径
+	 * @param html html代码
+	 * @return 检验结果
+	 */
+	protected List<ValidateMessage> validateComment(String filePath, String html) {
+		List<ValidateMessage> result = new ArrayList<ValidateMessage>();
 		String ss = "<!--";
 		Matcher ma = Pattern.compile(ss).matcher(html);
 		while (ma.find()) {
@@ -228,7 +283,7 @@ public class HtmlTagValidator {
 			int position = ma.start();
 			String tagHtml = ma.group();
 			Tag tag = new Tag(tagHtml, getPos(html, position));
-			result.add(new ValidateError(filePath + " 注释没有结束标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
+			result.add(new ValidateMessage(filePath + " 注释没有结束标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag, MessageLevel.ERROR));
 		}
 		ss = "-->";
 		ma = Pattern.compile(ss).matcher(html);
@@ -237,7 +292,7 @@ public class HtmlTagValidator {
 			int position = ma.start();
 			String tagHtml = ma.group();
 			Tag tag = new Tag(tagHtml, getPos(html, position));
-			result.add(new ValidateError(filePath + " 注释没有开始标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag));
+			result.add(new ValidateMessage(filePath + " 注释没有开始标签: " + ss + ", line " + pos.line + ", col " + pos.col + ", pos" + ma.start(), tag, MessageLevel.ERROR));
 		}
 		return result;
 	}
@@ -250,6 +305,20 @@ public class HtmlTagValidator {
 	private boolean isEnclosingEndTag(Tag endTag) {
 		for (String enclosingTag : ENCLOSING_TAGS) {
 			if (enclosingTag.equalsIgnoreCase(endTag.getName().substring(1))) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 * 判断标签是否为自闭合标签
+	 * @param endTag 结束标签
+	 * @return 是否为自闭合标签
+	 */
+	protected boolean isEnclosingTag(Tag tag) {
+		for (String enclosingTag : ENCLOSING_TAGS) {
+			if (enclosingTag.equalsIgnoreCase(tag.getName())) {
 				return true;
 			}
 		}
@@ -278,8 +347,8 @@ public class HtmlTagValidator {
 				if (tagHtml.endsWith("<")) {
 					tagHtml = tagHtml.substring(0, tagHtml.length() - 1);
 				}
-				// 忽略jsp标签和script标签
-				if (tagHtml.equals("") || tagHtml.startsWith("<%") || tagHtml.startsWith("<script")
+				// 忽略script标签
+				if (tagHtml.equals("") || tagHtml.startsWith("<script")
 						|| tagHtml.endsWith("</script>")) {
 					continue;
 				}
@@ -290,16 +359,16 @@ public class HtmlTagValidator {
 				Tag tag = new Tag(tagHtml, getPos(html, position));
 				
 				// 忽略自闭合标签
-				boolean isEnclosingTag = false;
-				for (String enclosingTag : ENCLOSING_TAGS) {
-					if (enclosingTag.equalsIgnoreCase(tag.getName())) {
-						isEnclosingTag = true;
-						break;
-					}
-				}
-				if (isEnclosingTag) {
-					continue;
-				}
+//				boolean isEnclosingTag = false;
+//				for (String enclosingTag : ENCLOSING_TAGS) {
+//					if (enclosingTag.equalsIgnoreCase(tag.getName())) {
+//						isEnclosingTag = true;
+//						break;
+//					}
+//				}
+//				if (isEnclosingTag) {
+//					continue;
+//				}
 				
 				list.add(tag);
 			}
@@ -332,23 +401,33 @@ public class HtmlTagValidator {
 	/**
 	 * 校验错误信息
 	 */
-	public class ValidateError {
+	public class ValidateMessage {
 		
+		private MessageLevel level;	// 信息级别
 		private Tag currentTag; 	// 当前标签
 		private Tag compareTag;		// 对比的标签
-		private String message; 	// 错误信息
+		private String message; 	// 提示信息
 		
-		public ValidateError(String message) {
-			this.message = message;
+		public ValidateMessage(String message, MessageLevel level) {
+			if (MessageLevel.HINT.equals(level)) {
+				this.message = "hint  " + message; 
+			} else if (MessageLevel.WARNING.equals(level)) {
+				this.message = "warn  " + message; 
+			} else if (MessageLevel.ERROR.equals(level)) {
+				this.message = "error " + message; 
+			} else {
+				this.message = message;
+			}
+			this.level = level;
 		}
 		
-		public ValidateError(String message, Tag currentTag) {
-			this(message);
+		public ValidateMessage(String message, Tag currentTag, MessageLevel level) {
+			this(message, level);
 			this.currentTag = currentTag;
 		}
 		
-		public ValidateError(String message, Tag currentTag, Tag compareTag) {
-			this(message, currentTag);
+		public ValidateMessage(String message, Tag currentTag, Tag compareTag, MessageLevel level) {
+			this(message, currentTag, level);
 			this.compareTag = compareTag;
 		}
 		
@@ -356,24 +435,16 @@ public class HtmlTagValidator {
 			return currentTag;
 		}
 
-		public void setCurrentTag(Tag currentTag) {
-			this.currentTag = currentTag;
-		}
-
 		public Tag getCompareTag() {
 			return compareTag;
 		}
 
-		public void setCompareTag(Tag compareTag) {
-			this.compareTag = compareTag;
-		}
-		
 		public String getMessage() {
 			return message;
 		}
 
-		public void setMessage(String message) {
-			this.message = message;
+		public MessageLevel getLevel() {
+			return level;
 		}
 	}
 	
@@ -396,11 +467,12 @@ public class HtmlTagValidator {
 			if (html.startsWith("</")) {
 				return html.substring(1, html.length() - 1);
 			} else {
-				int index = html.indexOf(' ');
+				String html2 = html.replaceAll("\\s", " "); // 替换空白符号为空格
+				int index = html2.indexOf(' ');
 				if (index > 0) {
-					return html.substring(1, index);
+					return html2.substring(1, index);
 				} else {
-					return html.substring(1, html.length() - 1);
+					return html2.substring(1, html2.length() - 1);
 				}
 			}
 		}
